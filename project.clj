@@ -4,9 +4,9 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
 
-  :main kafka-streams.core
+  :main thamesstream.core
 
-  :uberjar-name "kafka_streams.jar"
+  :uberjar-name "thamesstream.jar"
 
   :repositories {"confluent" {:url "http://packages.confluent.io/maven/"}}
 
