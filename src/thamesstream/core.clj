@@ -1,8 +1,9 @@
 (ns thamesstream.core
-  (:require [clojure.string :refer [upper-case]])
-  (:import org.apache.kafka.common.serialization.Serdes
-           [org.apache.kafka.streams KafkaStreams StreamsConfig]
-           [org.apache.kafka.streams.kstream KStreamBuilder ValueMapper]))
+  (:require [clojure.string :refer [split]])
+  (:import 
+           org.apache.kafka.common.serialization.Serdes
+           [org.apache.kafka.streams KafkaStreams KeyValue StreamsConfig]
+           [org.apache.kafka.streams.kstream KeyValueMapper KStreamBuilder ValueMapper]))
 
 ; import org.apache.kafka.common.serialization.Serde;
 ; import org.apache.kafka.common.serialization.Serdes;
@@ -27,10 +28,25 @@
 (def input-topic
   (into-array String ["in-t"]))
 
+(def lines
+  (.stream builder input-topic))
+
+(def string-serde
+  (Serdes/String))
+
 (->
- (.stream builder input-topic)
- (.mapValues (reify ValueMapper (apply [_ v] ((comp str count) v))))
- (.to "out-t"))
+ lines
+ (.flatMapValues
+  (reify ValueMapper (apply [_ v]
+                       (split v #" "))))
+ (.map
+  (reify KeyValueMapper (apply [_ v x]
+                          (KeyValue. x x))))
+ (.countByKey (Serdes/String) "Counts")
+ (.toStream) ;; Transform KTable back Stream
+ (.to (Serdes/String) (Serdes/Long) "out-t"))
+
+(.print lines)
 
 (def streams
   (KafkaStreams. builder config))
@@ -43,3 +59,5 @@
   []
   (.start streams))
 
+(comment
+  (split " " #" "))

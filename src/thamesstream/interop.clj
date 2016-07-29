@@ -11,7 +11,7 @@ i;; (.methodName object)
 
 (System/getProperty "user.dir")
 
-i;; reify
+; reify
 
 (def f "hello")
 
