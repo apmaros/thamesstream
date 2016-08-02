@@ -1,7 +1,7 @@
 (ns thamesstream.interop
   (:require [clojure.string :refer [upper-case]]))
 
-i;; (.methodName object)
+;; (.methodName object)
 (.toString Object)
 
 (.indexOf "Let's synergize our bleeding edges" "y")
@@ -10,12 +10,3 @@ i;; (.methodName object)
 (String.)
 
 (System/getProperty "user.dir")
-
-; reify
-
-(def f "hello")
-
-
-
-(reify clojure.lang.Seqable
-  (seq [this] (upper-case f)))
