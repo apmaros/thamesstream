@@ -2,7 +2,7 @@
 Example project for Kafka Streams written over a beer near by the Thames. Its purpose is to
 
 ## Usage
-
+```
 ./bin/kafka-tools.sh kafka-console-consumer \
   --zookeeper zookeeper:2181 \
   --topic clicks-per-region \
@@ -33,6 +33,7 @@ bob--19
 dave--56
 alice--40
 fang--99
+```
 
 ## License
 

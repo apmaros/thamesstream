@@ -1,0 +1,6 @@
+1 , {:instruction "test", :result nil}
+1 , {:instruction "hama", :result nil}
+1 , {:instruction "blahh", :result nil}
+1 , {:instruction "a", :result "blag"}
+1 , {:instruction "a", :result "blag"}
+1 , {:instruction "a", :result "b"}

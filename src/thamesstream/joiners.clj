@@ -10,7 +10,8 @@
    StreamsConfig/BOOTSTRAP_SERVERS_CONFIG, (or (System/getenv "KAFKA_BOOTSTRAP_SERVERS")
                                                "localhost:9092")
    StreamsConfig/KEY_SERDE_CLASS_CONFIG,   (.getName (.getClass (Serdes/String)))
-   StreamsConfig/VALUE_SERDE_CLASS_CONFIG, (.getName (.getClass (Serdes/String)))})
+   StreamsConfig/VALUE_SERDE_CLASS_CONFIG, (.getName (.getClass (Serdes/String)))
+   })
 
 (def config
   (StreamsConfig. properties))
@@ -23,9 +24,6 @@
 
 (def regions-topic
   "regions")
-
-(def sink-topic
-  "counts")
 
 (def clicks-stream
   (.stream builder clicks-topic))
@@ -40,7 +38,8 @@
     regions-table
     (reify ValueJoiner (apply [this clicks region]
                          {:region (or region
-                                      "UNKNOWN") :clicks clicks})))
+                                      "UNKNOWN")
+                          :clicks clicks})))
    (.map
     (reify KeyValueMapper (apply [_ user region-with-clicks]
                             (log/debug (format "user %s joined with region-clicks %s "
@@ -50,12 +49,11 @@
    (.reduceByKey (reify Reducer (apply [this first-clicks second-clicks]
                                   (log/debug (log/debug "previous clicks %s, current clicks %s "
                                              first-clicks second-clicks))
-                                  (str (+ (read-string first-clicks)
-                                     (read-string second-clicks)))))
+                                  (+ (read-string first-clicks)
+                                     (read-string second-clicks))))
                  "clicks-per-region-unwindowed")
    ;(.print)
-   (.to (Serdes/String) (Serdes/String) "regions-clicks")
-   ))
+   (.to (Serdes/String) (Serdes/Long) "regions-clicks")))
 
 (def stream
   (KafkaStreams. builder config))
