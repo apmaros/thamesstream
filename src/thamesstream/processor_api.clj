@@ -3,8 +3,10 @@
   (:require [taoensso.timbre :as log]
             [thamesstream.config :as config])
   (:import org.apache.kafka.common.serialization.Serdes
-           [org.apache.kafka.streams KafkaStreams StreamsConfig]
-           [org.apache.kafka.streams.processor Processor ProcessorSupplier TopologyBuilder]
+           [org.apache.kafka.streams KafkaStreams KeyValue StreamsConfig]
+           [org.apache.kafka.streams.kstream KStreamBuilder Transformer TransformerSupplier]
+           [org.apache.kafka.streams.processor Processor ProcessorSupplier StateStoreSupplier]
+           org.apache.kafka.streams.state.internals.RocksDBStore
            org.apache.kafka.streams.state.Stores))
 
 ;; stream processor is a node in the processor topology that represents a single processing step
@@ -88,39 +90,73 @@
 
 (defn words-topology
   [builder]
-  (..
+  (->
    builder
    ;; source processors generate input data streams into the topology
-   (addSource "source" (into-array String ["order-food"]))
+   (.addSource "source" (into-array String ["order-food"]))
 
    ;; processor node
    ;; connects with upstream node `source`
-   (addProcessor "process" (reify ProcessorSupplier
+   (.addProcessor "process" (reify ProcessorSupplier
                              (get [_] (build-processor)))
                  (into-array String ["source"]))
-
    ;; store with `process` upstream processor node
-   (addStateStore (build-store "food-store") (into-array String ["process"]))
-   (addStateStore (build-store "order-counter" {:key-serde (Serdes/String) :value-serde (Serdes/Long)})
+   (.addStateStore (build-store "food-store") (into-array String ["process"]))
+   (.addStateStore (build-store "order-counter" {:key-serde (Serdes/String) :value-serde (Serdes/Long)})
                   (into-array String ["process"]))
 
    ;; sink processors generate output data streams out of the topology
    ;; `process` is upstream processing node
-   (addSink "failed-orders-sink" "food-order-failed" (into-array String ["process"]))
-   (addSink "orders-sink" "food-ordered" (into-array String ["process"]))))
+   (.addSink "failed-orders-sink" "food-order-failed" (into-array String ["process"]))
+   (.addSink "orders-sink" "food-ordered" (into-array String ["process"]))))
+
+
+(defn supply-store
+  [store-name]
+  (reify
+    StateStoreSupplier
+    (get [_]
+      (RocksDBStore. store-name (Serdes/String) (Serdes/String)))
+    (name [_]
+      store-name)))
+
+;; Transformer instead of Processor
+(defn supply-food-transformer
+  []
+  (reify TransformerSupplier
+    (get [_]
+      (reify Transformer
+        (init [_ transformer-context])
+        (transform [_ k v]
+          (log/info "Transforming..." k "-" v)
+          (KeyValue/pair k v))
+        (punctuate [_ timestamp])
+        (close [_])))))
+
+(defn dsl-topology
+  [builder]
+  (let [_  (.addStateStore builder (supply-store "food-store") (into-array String []))]
+    (.. builder
+      (stream (into-array String ["order-food"]))
+      (transform (supply-food-transformer)
+                 (into-array String ["food-store"]))))
+  builder)
 
 (comment
 
   (defn builder
     []
-      (TopologyBuilder.))
-
-  (build-processor "foo")
+    (KStreamBuilder.))
 
   (def topology
     (words-topology (builder)))
 
+  (def dsl-topology
+    (dsl-topology (builder)))
+
   (def streams (KafkaStreams. topology (StreamsConfig. (config/streams-properties "words-count-v1"))))
+
+  (def streams (KafkaStreams. (dsl-topology (KStreamBuilder.)) (StreamsConfig. (config/streams-properties "dsl-words-count-v12"))))
 
   (.start streams)
 
