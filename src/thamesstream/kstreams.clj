@@ -1,9 +1,10 @@
 (ns thamesstream.kstreams
-  (:require [thamesstream.edn-serde :refer [edn-serde]])
+  (:require [clojure.tools.logging :as log]
+            [thamesstream.edn-serde :refer [edn-serde]])
   (:import org.apache.kafka.clients.consumer.ConsumerConfig
            org.apache.kafka.common.serialization.Serdes
-           [org.apache.kafka.streams KafkaStreams StreamsConfig]
-           org.apache.kafka.streams.kstream.KStreamBuilder
+           [org.apache.kafka.streams KafkaStreams KeyValue StreamsConfig]
+           [org.apache.kafka.streams.kstream KStreamBuilder Transformer TransformerSupplier]
            org.apache.kafka.streams.processor.StateStoreSupplier
            org.apache.kafka.streams.state.Stores))
 
@@ -40,7 +41,7 @@
 
 (defn build-store
   ([name]
-   (build-store name {}))
+   (build-store name {:key-serde (Serdes/String) :value-serde (edn-serde)}))
   ([name {:keys [key-serde value-serde] :as serdes}]
    (..
     (Stores/create name)
@@ -62,3 +63,32 @@
        build)
       (name [_]
             store-name))))
+
+(defn key-value
+  [k v]
+  (KeyValue/pair k v))
+
+(defn supply-transformer
+  [init-fn transform-fn punct-fn close-fn config]
+  (reify TransformerSupplier
+    (get [_]
+      (let [context (atom nil)]
+        (reify Transformer
+          (init [_ transformer-context]
+            (some->>
+             (:schedule-time config)
+             (.schedule transformer-context))
+            (reset! context transformer-context)
+            (init-fn transformer-context))
+
+          (transform [_ k v]
+            (log/info (format "[transformer] processing %s, %s" k v))
+            (transform-fn context k v))
+
+          (punctuate [_ timestamp]
+            (log/info "[transformer] Running scheduled task at time " timestamp)
+            (punct-fn context))
+
+          (close [_]
+            (log/info "[transformer] Closing transformer...")
+            (close-fn context)))))))
