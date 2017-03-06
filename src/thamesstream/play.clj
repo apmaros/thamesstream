@@ -3,6 +3,7 @@
   (:import org.apache.kafka.common.serialization.Serdes
            [org.apache.kafka.streams KafkaStreams StreamsConfig]
            [org.apache.kafka.streams.kstream Aggregator Initializer JoinWindows KStreamBuilder ValueJoiner]
+           [org.apache.kafka.streams.integration.utils.EmbeddedSingleNodeKafkaCluster]
            org.apache.kafka.streams.kstream.Initializer))
 
 (def properties
@@ -37,12 +38,10 @@
    (.leftJoin results-stream
               (reify ValueJoiner (apply [this instruction result]
                                    (str {:instruction (or instruction "UNKNOWN") :result result})))
-              (.within (JoinWindows/of "instructions") 1000000))))
+              (JoinWindows/of "instructions"))))
 
 (.print instruction-processed-stream)
 (.to instruction-processed-stream "resolution")
-
-(JoinWindows/of "instructions")
 
 (.before (.within (JoinWindows/of "instructions") 1000000))
 

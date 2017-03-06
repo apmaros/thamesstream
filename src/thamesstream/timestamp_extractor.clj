@@ -3,9 +3,8 @@
 
 (deftype TimestamptExtractor []
   TimestampExtractor
-  (extract [_ message]
+  (extract [_ message foo]
     (let [message-timestamp  (:published-at (.value message))]
       (when message-timestamp
-        (prn "Overriding timestamp from metadata with message timestamp: "
-             message-timestamp))
+        (prn "Applying timestamp from message: " message-timestamp))
       (or message-timestamp (.timestamp message)))))

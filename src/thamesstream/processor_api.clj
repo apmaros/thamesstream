@@ -126,27 +126,62 @@
   (reify TransformerSupplier
     (get [_]
       (reify Transformer
-        (init [_ transformer-context])
+        (init [_ transformer-context]
+          (reset! context transformer-context))
         (transform [_ k v]
           (log/info "Transforming..." k "-" v)
+          (let [food-store (get-store "food-store")
+                order-counter (get-store "order-counter-store")
+                order-count (.get order-counter v)]
+
+            (log/info order-count " orders for " v)
+            (cond
+              (nil? order-count) (let [init-count 1]
+                                   (.put order-counter v init-count)
+                                   (log/info "COUNT INITIATED")
+                                   (.forward @context k (format confirm-msg v init-count)
+                                             "orders-sink"))
+              (>= order-count max-orders) (do
+                                            (log/info "CAN NOT ORDER!!! REACH LIMIT OF " max-orders)
+                                            (.forward @context k
+                                                      "Can not order, maximum orders reached!" "failed-orders-sink"))
+              (>= order-count 1) (let [updated-order-count (inc order-count)]
+                                   (log/info "Increasing order count to " updated-order-count)
+                                   (.put order-counter v updated-order-count)
+                                   (.forward @context k (format confirm-msg v updated-order-count)
+                                             "orders-sink"))
+              :else (throw (Exception. "Don't know what to do, no action matched")))
+
+            (.put food-store k v)
+
+            ;; commits current processing progress
+            (.commit @context)
+            ;; flush cached data to kafka topic
+            (map #(.flush %) [food-store order-counter]))
           (KeyValue/pair k v))
         (punctuate [_ timestamp])
         (close [_])))))
 
 (defn dsl-topology
   [builder]
-  (let [_  (.addStateStore builder (supply-store "food-store") (into-array String []))]
+  (let [_ "" ]
     (.. builder
-      (stream (into-array String ["order-food"]))
-      (transform (supply-food-transformer)
-                 (into-array String ["food-store"]))))
+        (addStateStore (build-store "food-store") (into-array String []))
+        (addStateStore (build-store "order-counter-store"
+                                    {:key-serde (Serdes/String) :value-serde (Serdes/Long)})
+                       (into-array String []))
+        (stream (into-array String ["order-food"]))
+        (transform (supply-food-transformer)
+                   (into-array String ["food-store" "order-counter-store"])))
+    (.. builder
+        (addSink "failed-orders-sink" "food-order-failed" (into-array String ["food-transformer"]))
+        (addSink "orders-sink" "food-ordered" (into-array String ["food-transformer"]))))
   builder)
 
+(defn builder
+  []
+      (KStreamBuilder.))
 (comment
-
-  (defn builder
-    []
-    (KStreamBuilder.))
 
   (def topology
     (words-topology (builder)))
@@ -156,7 +191,8 @@
 
   (def streams (KafkaStreams. topology (StreamsConfig. (config/streams-properties "words-count-v1"))))
 
-  (def streams (KafkaStreams. (dsl-topology (KStreamBuilder.)) (StreamsConfig. (config/streams-properties "dsl-words-count-v12"))))
+  (def streams (KafkaStreams. (dsl-topology (KStreamBuilder.)) (StreamsConfig. (config/streams-properties (str "dsl-words-count-"
+                                                                                                               (java.util.UUID/randomUUID))))))
 
   (.start streams)
 
