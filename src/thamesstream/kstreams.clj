@@ -14,6 +14,7 @@
   ([application-id conf]
    (->
     {StreamsConfig/APPLICATION_ID_CONFIG,    application-id
+     StreamsConfig/TIMESTAMP_EXTRACTOR_CLASS_CONFIG "thamesstream.timestamp_extractor.TimestamptExtractor"
      ConsumerConfig/AUTO_OFFSET_RESET_CONFIG "earliest"
      StreamsConfig/BOOTSTRAP_SERVERS_CONFIG, (or (System/getenv "KAFKA_BOOTSTRAP_SERVERS")
                                                  "localhost:9092")}

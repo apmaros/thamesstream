@@ -16,5 +16,7 @@
                   (edns/edn-serializer)))
 
 (defn send
-  [topic k v]
-  (.send (producer) (ProducerRecord. topic (.toString k) v)))
+  ([topic k v]
+   (.send (producer) (ProducerRecord. topic (.toString k) v)))
+  ([topic timestamp k v]
+   (.send (producer) (ProducerRecord. timestamp topic (.toString k) v))))

@@ -1,102 +1,79 @@
 (ns thamesstream.windows
-  (:require [clojure.pprint :refer [pprint]]
-            [clojure.tools.logging :as log]
+  (:require [clojure.tools.logging :as log]
             [thamesstream
              [clients :as clients]
              [edn-serde :refer [edn-serde]]
              [kstreams :as k]
              [utils :refer [to-long-ts]]])
   (:import org.apache.kafka.common.serialization.Serdes
-           org.apache.kafka.streams.state.QueryableStoreTypes
-           org.apache.kafka.streams.StreamsConfig))
+           [org.apache.kafka.streams.kstream Aggregator Initializer KeyValueMapper Merger SessionWindows]
+           org.apache.kafka.streams.state.QueryableStoreTypes))
 
-;;
-;; transaction needs to have approval from at least two supervisors within time period
-;;
+;; http://docs.confluent.io/3.1.1/streams/concepts.html#windowing
+;; Windowing is essentially dividing records into buckets.
+;; It is typically used for stateful such join and aggregate.
+;; The state is maintained in local store.
 
-(def ^:private store-name "transaction-store")
+;; In Kafka Streams DSL, user defines the retention period for messages,
+;; which arrive late (late arrival). Messages after this time are dropped
 
-(defn- decision-made-by
-  [approved? transactions]
-  (-> (group-by :approve transactions)
-      (get approved?)
-      (#(map :decided-by %))))
+;; # Session Window with aggregate
+;; Sessions represent a period of activity separated by a defined gap of inactivity
 
-(defn- build-approval
-  [transaction-rec]
-  {:key   (:key transaction-rec)
-   :value {:approved   true
-           :approved-by (->> transaction-rec
-                            :value
-                            (filter :approve)
-                            (map :decided-by))}})
+;; Case
+;; Customer put order.
+;; If no order is made within 5 seconds orders are processed and served.
 
-(defn- build-rejection
-  [transaction-rec]
-  (let [transaction (:value transaction-rec)]
-    {:key   (:key transaction-rec)
-     :value {:approved    false
-             :rejected-by (decision-made-by false transaction)
-             :approved-by (decision-made-by true transaction)}}))
+;; Any events processed that fall within the inactivity gap of any existing sessions
+;; are merged into the existing sessions
 
-(defn- approve?
-  [transactions]
-  (let [grouped-recs (group-by :approve transactions)
-        approved (count (get grouped-recs true))
-        declined (count (get grouped-recs false))]
-    (and (>= approved 2) (zero? declined))))
+(def inactivity-gap
+  5000)
 
-(defn- forward
-  [context result-rec]
-  (log/info "Forwarding decision result " result-rec)
-  (.forward context (:key result-rec) (:value result-rec)))
+(def retention-period
+  10000)
 
-(defn- transform-fn
-  [context k v]
-  (let [store (.getStateStore @context "transaction-store")
-        transactions (or (.get store k) [])]
-    (log/info "Found transaction " transactions)
-    (.put store k (-> transactions
-                      (conj v)
-                      distinct))))
-
-(defn- punctuate-fn
-  [context]
-  (let [store (.getStateStore @context "transaction-store")
-        transaction-recs (k/all store)]
-    (log/info transaction-recs)
-    (doseq [transaction-rec transaction-recs]
-      (.delete store (:key transaction-rec))
-      ;; blehh ugly
-      (if (approve? (:value transaction-rec))
-        (forward @context (build-approval transaction-rec))
-        (forward @context (build-rejection transaction-rec))))))
-
-(def ^:private transaction-transformer
-  (k/supply-transformer (fn [_])
-                        #'transform-fn
-                        #'punctuate-fn
-                        (fn [_])
-                        {:schedule-time 10000}))
-
-(defn- topology
+(defn session-topology
   [builder]
   (.. builder
-      (addStateStore (k/build-store store-name) (into-array String []))
-      (stream (Serdes/String) (edn-serde) (into-array String ["transaction"]))
-      (transform transaction-transformer (into-array String [store-name]))
-      (to (Serdes/String) (edn-serde) "transaction-decided"))
+      (stream (Serdes/String) (edn-serde) (into-array String ["order"]))
+      (groupByKey (Serdes/String) (edn-serde))
+      (aggregate (reify Initializer
+                          ;; `Initializer` is applied once before the first input is processed
+                          (apply [_]
+                            []))
+                 (reify Aggregator
+                   ;; `Aggregator` applied for each record to compute new aggregate
+                   (apply [_ k v v-agg]
+                     (-> v-agg
+                         (conj v)
+                         distinct)))
+                 (reify Merger
+                   ;; `Merger` is merging aggregate values for SessionWindows with the given key
+                   (apply [_ k agg1 agg2]
+                     (log/info "MERGING " agg1 " with: " agg2)
+                     (prn "agg1::" agg1 " agg2::" agg2)
+                     (conj agg2 agg1)))
+                 ;; window for 5 seconds with retention period 01 seconds
+                 (-> (SessionWindows/with inactivity-gap)
+                     (.until retention-period))
+                 (edn-serde)
+                 "session-agg-orders")
+      toStream
+      (map (reify KeyValueMapper
+             (apply [_ k v]
+               (let [window (.window k)]
+                 (log/info (.key k) "@" (.start window) "->" (.end window) "::" v)
+                 (k/key-value k v))))))
   builder)
 
 (defn streams
   []
   (->
    (k/kstream-builder)
-   topology
+   session-topology
    (k/kafka-streams (k/streams-config
-                     "my-app7"
-                     {StreamsConfig/TIMESTAMP_EXTRACTOR_CLASS_CONFIG
-                      "thamesstream.timestamp_extractor.TimestamptExtractor"}))))
+                     "session-window-app2"))))
 
 (comment
 
@@ -109,19 +86,41 @@
 
   (.close st)
 
-  ;; inspect store
   (def view
-    (.store st "transaction-store" (QueryableStoreTypes/keyValueStore)))
+    (.store st "session-agg-orders" (QueryableStoreTypes/sessionStore)))
 
-  (k/all view)
-  (.get view "00000001")
+  (def e (first (map k/rec->map (iterator-seq (.fetch view "0000033")))))
 
-  (do
-    (clients/send "transaction" "00000001" {:decided-by "Peter" :approve true :published-at (to-long-ts 10 00 00)})
-    (clients/send "transaction" "00000001" {:decided-by "Frank" :approve true :published-at (to-long-ts 11 00 01)})
-    (clients/send "transaction" "00000001" {:decided-by "Stephan" :approve true :published-at (to-long-ts 11 00 10)})
+  (map :value (map k/rec->map (iterator-seq (.fetch view "000033"))))
 
-    ;; trigger punctuate
-    (clients/send "transaction" "00000009" {:decided-by "Drake" :approve false :published-at (to-long-ts 13 00 10)})
-    )
+  (.key (:key e))
+
+  (def ew (.window (:key e)))
+
+  (.end ew)
+
+  (.start ew)
+
+  (.close st)
+
+  ;; SESSION I
+  (clients/send "order" "000033" {:decided-by "Peter" :approve true :published-at (to-long-ts 10 10 00)})
+  ;;Merger
+  ;; "agg1::" [] " agg2::" ({:decided-by "Peter", :approve true, :published-at 1489572600000})
+
+  ;; 000033 @ 1489572600000 -> 1489572604000 :: ({:decided-by James, :approve true, :published-at 1489572604000} [] {:decided-by Peter, :approve true, :published-at 1489572600000})
+
+  (clients/send "order" "000033" {:decided-by "James" :approve true :published-at (to-long-ts 10 10 04)})
+  (clients/send "order" "000033" {:decided-by "Daniel" :approve true :published-at (to-long-ts 10 10 9)})
+  ;; Merger
+  ;; "agg1::" [] " agg2::" ({:decided-by "James", :approve true, :published-at 1489572604000} [] {:decided-by "Peter", :approve true, :published-at 1489572600000})
+
+  ;; 000033 @ 1489572600000 -> 1489572609000 :: ({:decided-by Daniel, :approve true, :published-at 1489572609000} [] {:decided-by James, :approve true, :published-at 1489572604000} {:decided-by Peter, :approve true, :published-at 1489572600000})
+
+  ;; (nil
+  ;;  nil
+  ;;  ({:decided-by "Daniel", :approve true, :published-at 1489572609000}
+  ;;   []
+  ;;   {:decided-by "James", :approve true, :published-at 1489572604000}
+  ;;   {:decided-by "Peter", :approve true, :published-at 1489572600000}))
   )

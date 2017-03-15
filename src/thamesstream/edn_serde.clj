@@ -1,4 +1,5 @@
 (ns thamesstream.edn-serde
+  "Credits to @nachomdo"
   (:import [org.apache.kafka.common.serialization Deserializer Serde StringDeserializer StringSerializer]))
 
 (defn edn-serializer []
