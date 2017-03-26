@@ -44,9 +44,6 @@
                  (reify Aggregator
                    ;; `Aggregator` applied for each record to compute new aggregate
                    (apply [_ k v v-agg]
-                     (prn "V:: " v)
-                     (prn "v-AGG " v-agg)
-                     (prn "CONJ " (conj v-agg v))
                      (conj v-agg v)))
 
                  (reify Merger

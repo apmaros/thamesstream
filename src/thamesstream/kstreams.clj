@@ -4,7 +4,7 @@
   (:import org.apache.kafka.clients.consumer.ConsumerConfig
            org.apache.kafka.common.serialization.Serdes
            [org.apache.kafka.streams KafkaStreams KeyValue StreamsConfig]
-           [org.apache.kafka.streams.kstream KStreamBuilder Transformer TransformerSupplier]
+           [org.apache.kafka.streams.kstream KeyValueMapper KStreamBuilder Predicate Transformer TransformerSupplier]
            org.apache.kafka.streams.processor.StateStoreSupplier
            org.apache.kafka.streams.state.Stores))
 
@@ -97,3 +97,24 @@
           (close [_]
             (log/info "[transformer] Closing transformer...")
             (close-fn context)))))))
+
+(defn predicate
+  [f]
+  (reify Predicate
+    (test [_ k v]
+      (f k v))))
+
+(defn predicates
+  [pv]
+  (into-array Predicate pv))
+
+(defn key-value-mapper
+  [f]
+  (reify KeyValueMapper
+    (apply [_ k v]
+      (f k v))))
+
+(def log-stream
+  (key-value-mapper (fn [k v]
+                      (prn "processing key:" k " value: " v)
+                      (key-value k v))))
