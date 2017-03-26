@@ -2,7 +2,7 @@
   (:import org.apache.kafka.common.serialization.Serdes
            org.apache.kafka.streams.StreamsConfig))
 
-(def ^:private string-serde->string
+(def ^:private string-serde->str
   (.getName (.getClass (Serdes/String))))
 
 (def  broker-address
@@ -12,5 +12,5 @@
   [application-id]
   {StreamsConfig/APPLICATION_ID_CONFIG    application-id
    StreamsConfig/BOOTSTRAP_SERVERS_CONFIG broker-address
-   StreamsConfig/KEY_SERDE_CLASS_CONFIG   string-serde->string
-   StreamsConfig/VALUE_SERDE_CLASS_CONFIG string-serde->string})
+   StreamsConfig/KEY_SERDE_CLASS_CONFIG   string-serde->str
+   StreamsConfig/VALUE_SERDE_CLASS_CONFIG string-serde->str})

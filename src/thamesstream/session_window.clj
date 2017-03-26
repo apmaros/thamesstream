@@ -2,16 +2,16 @@
   (:require [clojure.tools.logging :as log]
             [thamesstream
              [clients :as clients]
-             [edn-serde :refer [edn-serde]]
+             [edn-serde :as edn :refer [edn-serde]]
              [kstreams :as k]
              [utils :refer [to-long-ts]]])
-  (:import org.apache.kafka.common.serialization.Serdes
+  (:import [org.apache.kafka.common.serialization Serdes StringSerializer]
            [org.apache.kafka.streams.kstream Aggregator Initializer KeyValueMapper Merger SessionWindows]
            org.apache.kafka.streams.state.QueryableStoreTypes))
 
 ;; http://docs.confluent.io/3.1.1/streams/concepts.html#windowing
 ;; Windowing is essentially dividing records into buckets.
-;; It is typically used for stateful such join and aggregate.
+;; It is typically used for stateful operations such join and aggregate.
 ;; The state is maintained in local store.
 
 ;; In Kafka Streams DSL, user defines the retention period for messages,
@@ -40,19 +40,18 @@
       (groupByKey (Serdes/String) (edn-serde))
       (aggregate (reify Initializer
                           ;; `Initializer` is applied once before the first input is processed
-                          (apply [_]
-                            []))
+                          (apply [_]))
                  (reify Aggregator
                    ;; `Aggregator` applied for each record to compute new aggregate
                    (apply [_ k v v-agg]
-                     (-> v-agg
-                         (conj v)
-                         distinct)))
+                     (prn "V:: " v)
+                     (prn "v-AGG " v-agg)
+                     (prn "CONJ " (conj v-agg v))
+                     (conj v-agg v)))
+
                  (reify Merger
                    ;; `Merger` is merging aggregate values for SessionWindows with the given key
                    (apply [_ k agg1 agg2]
-                     (log/info "MERGING " agg1 " with: " agg2)
-                     (prn "agg1::" agg1 " agg2::" agg2)
                      (conj agg2 agg1)))
                  ;; window for 5 seconds with retention period 01 seconds
                  (-> (SessionWindows/with inactivity-gap)
@@ -64,7 +63,10 @@
              (apply [_ k v]
                (let [window (.window k)]
                  (log/info (.key k) "@" (.start window) "->" (.end window) "::" v)
-                 (k/key-value k v))))))
+                 (k/key-value (str (.key k) "@" (.start window) "->" (.end window))
+                              v)))))
+
+      (to (Serdes/String) (edn-serde) "serve-orders"))
   builder)
 
 (defn streams
@@ -84,14 +86,12 @@
 
   (.start st)
 
-  (.close st)
-
   (def view
     (.store st "session-agg-orders" (QueryableStoreTypes/sessionStore)))
 
-  (def e (first (map k/rec->map (iterator-seq (.fetch view "0000033")))))
+  (def e (first (map k/rec->map (iterator-seq (.fetch view "0011")))))
 
-  (map :value (map k/rec->map (iterator-seq (.fetch view "000033"))))
+  (map :value (map k/rec->map (iterator-seq (.fetch view "011"))))
 
   (.key (:key e))
 
@@ -104,23 +104,13 @@
   (.close st)
 
   ;; SESSION I
-  (clients/send "order" "000033" {:decided-by "Peter" :approve true :published-at (to-long-ts 10 10 00)})
-  ;;Merger
-  ;; "agg1::" [] " agg2::" ({:decided-by "Peter", :approve true, :published-at 1489572600000})
+  (clients/send "order" "011" {:decided-by "Peter" :approve true :published-at (to-long-ts 10 10 00)})
+  (clients/send "order" "011" {:decided-by "James" :approve true :published-at (to-long-ts 10 10 04)})
 
-  ;; 000033 @ 1489572600000 -> 1489572604000 :: ({:decided-by James, :approve true, :published-at 1489572604000} [] {:decided-by Peter, :approve true, :published-at 1489572600000})
+  ;; SESSION II
+  (clients/send "order" "011" {:decided-by "Daniel" :approve true :published-at (to-long-ts 10 10 14)})
 
-  (clients/send "order" "000033" {:decided-by "James" :approve true :published-at (to-long-ts 10 10 04)})
-  (clients/send "order" "000033" {:decided-by "Daniel" :approve true :published-at (to-long-ts 10 10 9)})
-  ;; Merger
-  ;; "agg1::" [] " agg2::" ({:decided-by "James", :approve true, :published-at 1489572604000} [] {:decided-by "Peter", :approve true, :published-at 1489572600000})
+  ;; SESSION I - late arrival
+  (clients/send "order" "011" {:decided-by "Florence" :approve true :published-at (to-long-ts 10 10 05)})
 
-  ;; 000033 @ 1489572600000 -> 1489572609000 :: ({:decided-by Daniel, :approve true, :published-at 1489572609000} [] {:decided-by James, :approve true, :published-at 1489572604000} {:decided-by Peter, :approve true, :published-at 1489572600000})
-
-  ;; (nil
-  ;;  nil
-  ;;  ({:decided-by "Daniel", :approve true, :published-at 1489572609000}
-  ;;   []
-  ;;   {:decided-by "James", :approve true, :published-at 1489572604000}
-  ;;   {:decided-by "Peter", :approve true, :published-at 1489572600000}))
   )

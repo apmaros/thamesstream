@@ -8,19 +8,7 @@
            org.apache.kafka.streams.processor.StateStoreSupplier
            org.apache.kafka.streams.state.Stores))
 
-(defn streams-config
-  ([application-id]
-   (streams-config application-id {}))
-  ([application-id conf]
-   (->
-    {StreamsConfig/APPLICATION_ID_CONFIG,    application-id
-     StreamsConfig/TIMESTAMP_EXTRACTOR_CLASS_CONFIG "thamesstream.timestamp_extractor.TimestamptExtractor"
-     ConsumerConfig/AUTO_OFFSET_RESET_CONFIG "earliest"
-     StreamsConfig/BOOTSTRAP_SERVERS_CONFIG, (or (System/getenv "KAFKA_BOOTSTRAP_SERVERS")
-                                                 "localhost:9092")}
-    (merge conf)
-    StreamsConfig.)))
-
+;; KS
 (def kstream-builder
   (fn [] (KStreamBuilder.)))
 
@@ -28,6 +16,21 @@
   [builder config]
   (KafkaStreams. builder config))
 
+(defn streams-config
+  ([application-id]
+   (streams-config application-id {}))
+  ([application-id conf]
+   (->
+    {StreamsConfig/APPLICATION_ID_CONFIG,           application-id
+     StreamsConfig/TIMESTAMP_EXTRACTOR_CLASS_CONFIG "thamesstream.timestamp_extractor.TimestamptExtractor"
+     ConsumerConfig/AUTO_OFFSET_RESET_CONFIG        "earliest"
+     StreamsConfig/BOOTSTRAP_SERVERS_CONFIG,        (or (System/getenv "KAFKA_BOOTSTRAP_SERVERS")
+                                                        "localhost:9092")
+     StreamsConfig/CACHE_MAX_BYTES_BUFFERING_CONFIG  0}
+    (merge conf)
+    StreamsConfig.)))
+
+;; Store
 (defn rec->map
   [rec]
   {:key   (.key rec)
@@ -69,6 +72,7 @@
   [k v]
   (KeyValue/pair k v))
 
+;; Topology
 (defn supply-transformer
   [init-fn transform-fn punct-fn close-fn config]
   (reify TransformerSupplier
