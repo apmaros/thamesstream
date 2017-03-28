@@ -1,4 +1,4 @@
-(ns thamesstream.branch
+(ns thamesstream.sample.branch
   (:require [thamesstream
              [clients :as client]
              [edn-serde :refer [edn-serde]]

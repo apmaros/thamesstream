@@ -1,4 +1,4 @@
-(ns thamesstream.transform
+(ns thamesstream.sample.transform
   (:require [clojure.pprint :refer [pprint]]
             [clojure.tools.logging :as log]
             [thamesstream

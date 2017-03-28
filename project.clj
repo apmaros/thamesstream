@@ -6,7 +6,7 @@
 
   :main thamesstream.core
 
-  :aot :all ;[thamesstream.timestamp-extractor]
+  :aot [thamesstream.timestamp-extractor]
 
   :uberjar-name "thamesstream.jar"
 

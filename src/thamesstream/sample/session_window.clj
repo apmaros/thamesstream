@@ -1,4 +1,4 @@
-(ns thamesstream.windows
+(ns thamesstream.sample.session-window
   (:require [clojure.tools.logging :as log]
             [thamesstream
              [clients :as clients]
