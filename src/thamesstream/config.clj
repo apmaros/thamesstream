@@ -1,5 +1,6 @@
 (ns thamesstream.config
-  (:import org.apache.kafka.common.serialization.Serdes
+  (:import java.lang.System
+           org.apache.kafka.common.serialization.Serdes
            org.apache.kafka.streams.StreamsConfig))
 
 (def ^:private string-serde->str
@@ -7,6 +8,9 @@
 
 (def  broker-address
   (or (System/getenv "KAFKA_BOOTSTRAP_SERVERS") "localhost:9092"))
+
+(def zk-connect-string
+  (or (System/getenv "ZK_CONNECT_STRING") "localhost:2181"))
 
 (defn streams-props
   [application-id]
