@@ -4,7 +4,7 @@
   (:import org.apache.kafka.clients.consumer.ConsumerConfig
            org.apache.kafka.common.serialization.Serdes
            [org.apache.kafka.streams KafkaStreams KeyValue StreamsConfig]
-           [org.apache.kafka.streams.kstream KeyValueMapper KStreamBuilder Predicate Transformer TransformerSupplier]
+           [org.apache.kafka.streams.kstream KeyValueMapper KStreamBuilder Predicate Transformer TransformerSupplier ValueJoiner]
            org.apache.kafka.streams.processor.StateStoreSupplier
            org.apache.kafka.streams.state.Stores))
 
@@ -87,15 +87,15 @@
             (init-fn transformer-context))
 
           (transform [_ k v]
-            (log/info (format "[transformer] processing %s, %s" k v))
+            (log/debug(format "[transformer] processing %s, %s" k v))
             (transform-fn context k v))
 
           (punctuate [_ timestamp]
-            (log/info "[transformer] Running scheduled task at time " timestamp)
+            (log/debug "[transformer] Running scheduled task at time " timestamp)
             (punct-fn context))
 
           (close [_]
-            (log/info "[transformer] Closing transformer...")
+            (log/debug "[transformer] Closing transformer...")
             (close-fn context)))))))
 
 (defn predicate
@@ -114,7 +114,47 @@
     (apply [_ k v]
       (f k v))))
 
+(defn value-joiner
+  [f]
+  (reify ValueJoiner
+    (apply [_ v1 v2]
+      (f v1 v2))))
+
+(defn left-join
+  [table other-stream f
+   & {:keys [key-serde value-serde]
+      :or {key-serde (Serdes/String)
+           value-serde (edn-serde)}}]
+
+  (.leftJoin table
+             other-stream
+             (value-joiner f)
+             key-serde value-serde))
+
 (def log-stream
   (key-value-mapper (fn [k v]
-                      (prn "processing key:" k " value: " v)
+                      ;; (prn "processing key:" k " value: " v)
                       (key-value k v))))
+
+(defn stream
+  [builder topic-name & {:keys [key-serde value-serde]
+                          :or {key-serde (Serdes/String)
+                               value-serde (edn-serde)}}]
+  (.stream builder
+           key-serde
+           value-serde
+           (into-array String [topic-name])))
+
+(defn table
+  [builder
+   topic-name
+   store-name & {:keys [key-serde value-serde]
+                 :or {key-serde (Serdes/String)
+                      value-serde (edn-serde)}}]
+  (.table builder key-serde value-serde topic-name store-name))
+
+(defn to
+  [builder topic-name & {:keys [key-serde value-serde]
+                         :or {key-serde (Serdes/String)
+                              value-serde (edn-serde)}}]
+  (.to builder key-serde value-serde topic-name))
