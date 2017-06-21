@@ -8,9 +8,9 @@ services:
     environment:
       zk_id: "1"
 
-  kafka:
+  kafka1:
     hostname: kafka
-    image: confluent/kafka:latest
+    image: confluentinc/cp-kafka:latest
     depends_on:
       - zookeeper
     ports:
@@ -18,35 +18,53 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
-      KAFKA_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka1:9092"
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - /tmp/docker/kafka1/logs:/logs
-      - /tmp/docker/kafka1/data:/data
 
-  rest-proxy:
-    image: confluent/rest-proxy:latest
-    hostname: rest-proxy
+  kafka2:
+    image: confluentinc/cp-kafka:latest
     depends_on:
       - zookeeper
-      - kafka
-      - schema-registry
     ports:
-      - "8082:8082"
+      - "9093:9093"
     environment:
-      RP_ZOOKEEPER_CONNECT: "zookeeper:2181"
-      RP_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka2:9093"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - /tmp/docker/kafka2/logs:/logs
+      - /tmp/docker/kafka2/data:/data
+
+  kafka3:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka3:9094"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - /tmp/docker/kafka2/logs:/logs
+      - /tmp/docker/kafka2/data:/data
 
   schema-registry:
     image: confluent/schema-registry:latest
     hostname: schema-registry
     restart: "on-failure:3"
     depends_on:
-      - kafka
+      - kafka1
+      - kafka2
+      - kafka3
       - zookeeper
     links:
       - zookeeper
-      - kafka
+      - kafka1
+      - kafka2
+      - kafka3
     ports:
       - "8081:8081"
     environment:
@@ -55,7 +73,8 @@ services:
   kafka_tools:
     image: confluent/tools:latest
     links:
-      - consul
       - zookeeper
       - schema-registry
-      - kafka
+      - kafka1
+      - kafka2
+      - kafka3
